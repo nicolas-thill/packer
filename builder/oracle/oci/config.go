@@ -1,3 +1,5 @@
+//go:generate mapstructure-to-hcl2 -type Config
+
 package oci
 
 import (
@@ -23,7 +25,7 @@ type Config struct {
 	common.PackerConfig `mapstructure:",squash"`
 	Comm                communicator.Config `mapstructure:",squash"`
 
-	ConfigProvider ocicommon.ConfigurationProvider
+	configProvider ocicommon.ConfigurationProvider
 
 	AccessCfgFile        string `mapstructure:"access_cfg_file"`
 	AccessCfgFileAccount string `mapstructure:"access_cfg_file_account"`
@@ -69,8 +71,11 @@ type Config struct {
 	ctx interpolate.Context
 }
 
-func NewConfig(raws ...interface{}) (*Config, error) {
-	c := &Config{}
+func (c *Config) ConfigProvider() ocicommon.ConfigurationProvider {
+	return c.configProvider
+}
+
+func (c *Config) Prepare(raws ...interface{}) error {
 
 	// Decode from template
 	err := config.Decode(c, &config.DecodeOpts{
@@ -78,7 +83,7 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 		InterpolateContext: &c.ctx,
 	}, raws...)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to mapstructure Config: %+v", err)
+		return fmt.Errorf("Failed to mapstructure Config: %+v", err)
 	}
 
 	// Determine where the SDK config is located
@@ -97,13 +102,13 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	if c.KeyFile != "" {
 		path, err := packer.ExpandUser(c.KeyFile)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		// Read API signing key
 		keyContent, err = ioutil.ReadFile(path)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
@@ -129,7 +134,7 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	// Load API access configuration from SDK
 	configProvider, err := ocicommon.ComposingConfigurationProvider(providers)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var errs *packer.MultiError
@@ -158,7 +163,7 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 			errs, errors.New("'key_file' must be specified"))
 	}
 
-	c.ConfigProvider = configProvider
+	c.configProvider = configProvider
 
 	if c.AvailabilityDomain == "" {
 		errs = packer.MultiErrorAppend(
@@ -243,10 +248,10 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 	}
 
 	if errs != nil && len(errs.Errors) > 0 {
-		return nil, errs
+		return errs
 	}
 
-	return c, nil
+	return nil
 }
 
 // getDefaultOCISettingsPath uses os/user to compute the default

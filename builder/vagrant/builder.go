@@ -1,4 +1,5 @@
 //go:generate struct-markdown
+//go:generate mapstructure-to-hcl2 -type Config
 
 package vagrant
 
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/common/bootcommand"
 	"github.com/hashicorp/packer/helper/communicator"
@@ -23,12 +25,8 @@ import (
 // Builder implements packer.Builder and builds the actual VirtualBox
 // images.
 type Builder struct {
-	config *Config
+	config Config
 	runner multistep.Runner
-}
-
-type SSHConfig struct {
-	Comm communicator.Config `mapstructure:",squash"`
 }
 
 type Config struct {
@@ -37,7 +35,8 @@ type Config struct {
 	common.ISOConfig       `mapstructure:",squash"`
 	common.FloppyConfig    `mapstructure:",squash"`
 	bootcommand.BootConfig `mapstructure:",squash"`
-	SSHConfig              `mapstructure:",squash"`
+
+	Comm communicator.Config `mapstructure:",squash"`
 	// The directory to create that will contain your output box. We always
 	// create this directory and run from inside of it to prevent Vagrant init
 	// collisions. If unset, it will be set to packer- plus your buildname.
@@ -69,6 +68,10 @@ type Config struct {
 	// the name to give it. If left blank, will default to "packer_" plus your
 	// buildname.
 	BoxName string `mapstructure:"box_name" required:"false"`
+	// If true, Vagrant will automatically insert a keypair to use for SSH,
+	// replacing Vagrant's default insecure key inside the machine if detected.
+	// By default, Packer sets this to false.
+	InsertKey bool `mapstructure:"insert_key" required:"false"`
 	// The vagrant provider.
 	// This parameter is required when source_path have more than one provider,
 	// or when using vagrant-cloud post-processor. Defaults to unset.
@@ -86,9 +89,9 @@ type Config struct {
 	// What box version to use when initializing Vagrant.
 	BoxVersion string `mapstructure:"box_version" required:"false"`
 	// a path to a golang template for a vagrantfile. Our default template can
-	// be found here. So far the only template variables available to you are
-	// {{ .BoxName }} and {{ .SyncedFolder }}, which correspond to the Packer
-	// options box_name and synced_folder.
+	// be found here. The template variables available to you are
+	// {{ .BoxName }}, {{ .SyncedFolder }}, and {{.InsertKey}}, which
+	// correspond to the Packer options box_name, synced_folder, and insert_key.
 	Template string `mapstructure:"template" required:"false"`
 
 	SyncedFolder string `mapstructure:"synced_folder"`
@@ -129,9 +132,9 @@ type Config struct {
 	ctx interpolate.Context
 }
 
-// Prepare processes the build configuration parameters.
-func (b *Builder) Prepare(raws ...interface{}) ([]string, error) {
-	b.config = new(Config)
+func (b *Builder) ConfigSpec() hcldec.ObjectSpec { return b.config.FlatMapstructure().HCL2Spec() }
+
+func (b *Builder) Prepare(raws ...interface{}) ([]string, []string, error) {
 	err := config.Decode(&b.config, &config.DecodeOpts{
 		Interpolate:        true,
 		InterpolateContext: &b.config.ctx,
@@ -142,7 +145,7 @@ func (b *Builder) Prepare(raws ...interface{}) ([]string, error) {
 		},
 	}, raws...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Accumulate any errors and warnings
@@ -182,6 +185,14 @@ func (b *Builder) Prepare(raws ...interface{}) ([]string, error) {
 		}
 	}
 
+	if b.config.OutputVagrantfile != "" {
+		b.config.OutputVagrantfile, err = filepath.Abs(b.config.OutputVagrantfile)
+		if err != nil {
+			packer.MultiErrorAppend(errs,
+				fmt.Errorf("unable to determine absolute path for output vagrantfile: %s", err))
+		}
+	}
+
 	if b.config.TeardownMethod == "" {
 		// If we're using a box that's already opened on the system, don't
 		// automatically destroy it. If we open the box ourselves, then go ahead
@@ -205,10 +216,10 @@ func (b *Builder) Prepare(raws ...interface{}) ([]string, error) {
 	}
 
 	if errs != nil && len(errs.Errors) > 0 {
-		return warnings, errs
+		return nil, warnings, errs
 	}
 
-	return warnings, nil
+	return nil, warnings, nil
 }
 
 // Run executes a Packer build and returns a packer.Artifact representing
@@ -226,7 +237,7 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 
 	// Set up the state.
 	state := new(multistep.BasicStateBag)
-	state.Put("config", b.config)
+	state.Put("config", &b.config)
 	state.Put("debug", b.config.PackerDebug)
 	state.Put("driver", driver)
 	state.Put("hook", hook)
@@ -257,6 +268,7 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 			BoxName:      b.config.BoxName,
 			OutputDir:    b.config.OutputDir,
 			GlobalID:     b.config.GlobalID,
+			InsertKey:    b.config.InsertKey,
 		},
 		&StepAddBox{
 			BoxVersion:   b.config.BoxVersion,
@@ -281,9 +293,9 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 			b.config.GlobalID,
 		},
 		&communicator.StepConnect{
-			Config:    &b.config.SSHConfig.Comm,
+			Config:    &b.config.Comm,
 			Host:      CommHost(),
-			SSHConfig: b.config.SSHConfig.Comm.SSHConfigFunc(),
+			SSHConfig: b.config.Comm.SSHConfigFunc(),
 		},
 		new(common.StepProvision),
 		&StepPackage{

@@ -1,4 +1,5 @@
 //go:generate struct-markdown
+//go:generate mapstructure-to-hcl2 -type Config
 
 package vmx
 
@@ -43,11 +44,6 @@ type Config struct {
 	// scenarios. Most users will wish to create a full clone instead. Defaults
 	// to false.
 	Linked bool `mapstructure:"linked" required:"false"`
-	// The type of remote machine that will be used to
-	// build this VM rather than a local desktop product. The only value accepted
-	// for this currently is esx5. If this is not set, a desktop product will
-	// be used. By default, this is not set.
-	RemoteType string `mapstructure:"remote_type" required:"false"`
 	// Path to the source VMX file to clone. If
 	// remote_type is enabled then this specifies a path on the remote_host.
 	SourcePath string `mapstructure:"source_path" required:"true"`
@@ -59,8 +55,7 @@ type Config struct {
 	ctx interpolate.Context
 }
 
-func NewConfig(raws ...interface{}) (*Config, []string, error) {
-	c := new(Config)
+func (c *Config) Prepare(raws ...interface{}) ([]string, error) {
 	err := config.Decode(c, &config.DecodeOpts{
 		Interpolate:        true,
 		InterpolateContext: &c.ctx,
@@ -72,7 +67,7 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 		},
 	}, raws...)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Defaults
@@ -152,8 +147,8 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 
 	// Check for any errors.
 	if errs != nil && len(errs.Errors) > 0 {
-		return nil, warnings, errs
+		return warnings, errs
 	}
 
-	return c, warnings, nil
+	return warnings, nil
 }

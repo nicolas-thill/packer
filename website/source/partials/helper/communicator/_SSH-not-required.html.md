@@ -36,7 +36,7 @@
 -   `ssh_pty` (bool) - If `true`, a PTY will be requested for the SSH connection. This defaults
     to `false`.
     
--   `ssh_timeout` (time.Duration) - The time to wait for SSH to become available. Packer uses this to
+-   `ssh_timeout` (duration string | ex: "1h5m2s") - The time to wait for SSH to become available. Packer uses this to
     determine when the machine has booted so this is usually quite long.
     Example value: `10m`.
     
@@ -46,7 +46,8 @@
     use this option with a key pair already configured in the source AMI,
     leave the `ssh_keypair_name` blank. To associate an existing key pair in
     AWS with the source instance, set the `ssh_keypair_name` field to the
-    name of the key pair.
+    name of the key pair. The environment variable `SSH_AUTH_SOCK` must be
+    set for this option to work properly.
     
 -   `ssh_disable_agent_forwarding` (bool) - If true, SSH agent forwarding will be disabled. Defaults to `false`.
     
@@ -79,12 +80,15 @@
     
 -   `ssh_proxy_password` (string) - The optional password to use to authenticate with the proxy server.
     
--   `ssh_keep_alive_interval` (time.Duration) - How often to send "keep alive" messages to the server. Set to a negative
+-   `ssh_keep_alive_interval` (duration string | ex: "1h5m2s") - How often to send "keep alive" messages to the server. Set to a negative
     value (`-1s`) to disable. Example value: `10s`. Defaults to `5s`.
     
--   `ssh_read_write_timeout` (time.Duration) - The amount of time to wait for a remote command to end. This might be
+-   `ssh_read_write_timeout` (duration string | ex: "1h5m2s") - The amount of time to wait for a remote command to end. This might be
     useful if, for example, packer hangs on a connection after a reboot.
     Example: `5m`. Disabled by default.
     
 -   `ssh_remote_tunnels` ([]string) - 
 -   `ssh_local_tunnels` ([]string) - 
+-   `ssh_public_key` ([]byte) - SSH Internals
+    
+-   `ssh_private_key` ([]byte) - SSH Private Key

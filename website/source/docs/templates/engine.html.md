@@ -41,7 +41,7 @@ Here is a full list of the available functions for reference.
     will convert upper cases to lower cases and replace illegal characters with
     a "-" character.  Example:
 
-   `"mybuild-{{isotime | clean_image_name}}"` will become
+   `"mybuild-{{isotime | clean_resource_name}}"` will become
     `mybuild-2017-10-18t02-06-30z`.
 
     Note: Valid Azure image names must match the regex
@@ -57,8 +57,41 @@ Here is a full list of the available functions for reference.
     clean_resource_name}}"` will cause your build to fail because the image
     name will start with a number, which is why in the above example we prepend
     the isotime with "mybuild".
+    Exact behavior of `clean_resource_name` will depend on which builder it is
+    being applied to; refer to build-specific docs below for more detail on how
+    each function will behave.
 -   `env` - Returns environment variables. See example in [using home
     variable](/docs/templates/user-variables.html#using-home-variable)
+-   `build` - This engine will allow you to access special variables that
+    provide connection information and basic instance state information.
+    Usage example:
+    ```json
+        {
+          "type": "shell-local",
+          "environment_vars": ["TESTVAR={{ build `PackerRunUUID`}}"],
+          "inline": ["echo $TESTVAR"]
+        },
+    ```
+    Valid variables to request are: "ID", "Host",
+    "Port", "User", "Password", "ConnType",
+    "PackerRunUUID", "SSHPublicKey", and "SSHPrivateKey".
+    Depending on which communicator you are using, some of these values may be
+    empty -- for example, the public and private keys are unique to the SSH
+    communicator. InstanceID represents the vm being provisioned. For example,
+    in Amazon it is the instance id; in digitalocean, it is the droplet id; in
+    Vmware, it is the vm name.
+
+    For backwards compatability, `WinRMPassword` is also available through this
+    engine, though it is no different than using the more general `Password`.
+
+    This function is only for use within specific options inside of
+    _provisioners_ -- these options will be listed as being template engines
+    in the provisioner documentation. This feature does not yet work
+    if the provisioners are being used in conjunction with our chroot builders
+    or with lxc/lxd builders.
+
+    This engine is in beta; please report any issues or requests on the Packer
+    issue tracker on GitHub.
 -   `isotime [FORMAT]` - UTC time, which can be
     [formatted](https://golang.org/pkg/time/#example_Time_Format). See more
     examples below in [the `isotime` format
@@ -84,19 +117,19 @@ Here is a full list of the available functions for reference.
 
 #### Specific to Amazon builders:
 
--   `clean_ami_name` - DEPRECATED use `clean_resource_name` instead - AMI names
+-   `clean_resource_name` - AMI names
     can only contain certain characters. This function will replace illegal
     characters with a '-" character. Example usage since ":" is not a legal AMI
-    name is: `{{isotime | clean_ami_name}}`.
+    name is: `{{isotime | clean_resource_name}}`.
 
 #### Specific to Google Compute builders:
 
--   `clean_image_name` - DEPRECATED use `clean_resource_name` instead - GCE
+-   `clean_resource_name` - GCE
     image names can only contain certain characters and the maximum length is
     63. This function will convert upper cases to lower cases and replace
         illegal characters with a "-" character. Example:
 
-    `"mybuild-{{isotime | clean_image_name}}"` will become
+    `"mybuild-{{isotime | clean_resource_name}}"` will become
     `mybuild-2017-10-18t02-06-30z`.
 
     Note: Valid GCE image names must match the regex
@@ -111,12 +144,12 @@ Here is a full list of the available functions for reference.
 
 #### Specific to Azure builders:
 
--   `clean_image_name` - DEPRECATED use `clean_resource_name` instead - Azure
+-   `clean_resource_name` - Azure
     managed image names can only contain certain characters and the maximum
     length is 80. This function will replace illegal characters with a "-"
     character. Example:
 
-    `"mybuild-{{isotime | clean_image_name}}"` will become
+    `"mybuild-{{isotime | clean_resource_name}}"` will become
     `mybuild-2017-10-18t02-06-30z`.
 
     Note: Valid Azure image names must match the regex

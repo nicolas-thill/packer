@@ -1,4 +1,5 @@
 //go:generate struct-markdown
+//go:generate mapstructure-to-hcl2 -type Config
 
 package cloudstack
 
@@ -77,6 +78,8 @@ type Config struct {
 	// The name of the instance. Defaults to
 	// "packer-UUID" where UUID is dynamically generated.
 	InstanceName string `mapstructure:"instance_name" required:"false"`
+	// The display name of the instance. Defaults to "Created by Packer".
+	InstanceDisplayName string `mapstructure:"instance_display_name" required:"false"`
 	// The name or ID of the network to connect the instance
 	// to.
 	Network string `mapstructure:"network" required:"true"`
@@ -164,8 +167,7 @@ type Config struct {
 }
 
 // NewConfig parses and validates the given config.
-func NewConfig(raws ...interface{}) (*Config, error) {
-	c := new(Config)
+func (c *Config) Prepare(raws ...interface{}) error {
 	err := config.Decode(c, &config.DecodeOpts{
 		Interpolate:        true,
 		InterpolateContext: &c.ctx,
@@ -176,7 +178,7 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 		},
 	}, raws...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var errs *packer.MultiError
@@ -207,6 +209,10 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 
 	if c.InstanceName == "" {
 		c.InstanceName = fmt.Sprintf("packer-%s", uuid.TimeOrderedUUID())
+	}
+
+	if c.InstanceDisplayName == "" {
+		c.InstanceDisplayName = "Created by Packer"
 	}
 
 	if c.TemplateName == "" {
@@ -302,8 +308,8 @@ func NewConfig(raws ...interface{}) (*Config, error) {
 
 	// Check for errors and return if we have any.
 	if errs != nil && len(errs.Errors) > 0 {
-		return nil, errs
+		return errs
 	}
 
-	return c, nil
+	return nil
 }

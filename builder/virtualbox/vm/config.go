@@ -1,9 +1,12 @@
+//go:generate mapstructure-to-hcl2 -type Config
+
 package vm
 
 import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	vboxcommon "github.com/hashicorp/packer/builder/virtualbox/common"
 	"github.com/hashicorp/packer/common"
@@ -41,8 +44,7 @@ type Config struct {
 	ctx interpolate.Context
 }
 
-func NewConfig(raws ...interface{}) (*Config, []string, error) {
-	c := new(Config)
+func (c *Config) Prepare(raws ...interface{}) ([]string, error) {
 	err := config.Decode(c, &config.DecodeOpts{
 		Interpolate:        true,
 		InterpolateContext: &c.ctx,
@@ -57,7 +59,7 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 		},
 	}, raws...)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Defaults
@@ -69,8 +71,8 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 		c.GuestAdditionsPath = "VBoxGuestAdditions.iso"
 	}
 
-	if c.RawPostShutdownDelay == "" {
-		c.RawPostShutdownDelay = "2s"
+	if c.PostShutdownDelay == 0 {
+		c.PostShutdownDelay = 2 * time.Second
 	}
 
 	// Prepare the errors
@@ -86,7 +88,7 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 	errs = packer.MultiErrorAppend(errs, c.VBoxVersionConfig.Prepare(&c.ctx)...)
 	errs = packer.MultiErrorAppend(errs, c.BootConfig.Prepare(&c.ctx)...)
 
-	log.Printf("PostShutdownDelay: %f", c.PostShutdownDelay.Seconds())
+	log.Printf("PostShutdownDelay: %s", c.PostShutdownDelay)
 
 	if c.VMName == "" {
 		errs = packer.MultiErrorAppend(errs,
@@ -200,8 +202,8 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 	}
 	// Check for any errors.
 	if errs != nil && len(errs.Errors) > 0 {
-		return nil, warnings, errs
+		return warnings, errs
 	}
 
-	return c, warnings, nil
+	return warnings, nil
 }

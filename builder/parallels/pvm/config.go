@@ -1,4 +1,5 @@
 //go:generate struct-markdown
+//go:generate mapstructure-to-hcl2 -type Config
 
 package pvm
 
@@ -48,8 +49,7 @@ type Config struct {
 	ctx interpolate.Context
 }
 
-func NewConfig(raws ...interface{}) (*Config, []string, error) {
-	c := new(Config)
+func (c *Config) Prepare(raws ...interface{}) ([]string, error) {
 	err := config.Decode(c, &config.DecodeOpts{
 		Interpolate:        true,
 		InterpolateContext: &c.ctx,
@@ -63,7 +63,7 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 		},
 	}, raws...)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if c.VMName == "" {
@@ -101,8 +101,8 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 
 	// Check for any errors.
 	if errs != nil && len(errs.Errors) > 0 {
-		return nil, warnings, errs
+		return warnings, errs
 	}
 
-	return c, warnings, nil
+	return warnings, nil
 }

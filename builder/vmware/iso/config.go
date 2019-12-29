@@ -1,4 +1,5 @@
 //go:generate struct-markdown
+//go:generate mapstructure-to-hcl2 -type Config
 
 package iso
 
@@ -81,13 +82,6 @@ type Config struct {
 	//   Guide](https://www.vmware.com/pdf/VirtualDiskManager.pdf) for desktop
 	//   VMware clients. For ESXi, refer to the proper ESXi documentation.
 	DiskTypeId string `mapstructure:"disk_type_id" required:"false"`
-	// Either "ovf", "ova" or "vmx", this specifies the output
-	// format of the exported virtual machine. This defaults to "ovf".
-	// Before using this option, you need to install ovftool. This option
-	// currently only works when option remote_type is set to "esx5".
-	// Since ovftool is only capable of password based authentication
-	// remote_password must be set when exporting the VM.
-	Format string `mapstructure:"format" required:"false"`
 	// The adapter type (or bus) that will be used
 	// by the cdrom device. This is chosen by default based on the disk adapter
 	// type. VMware tends to lean towards ide for the cdrom device unless
@@ -121,8 +115,7 @@ type Config struct {
 	ctx interpolate.Context
 }
 
-func NewConfig(raws ...interface{}) (*Config, []string, error) {
-	c := new(Config)
+func (c *Config) Prepare(raws ...interface{}) ([]string, error) {
 	err := config.Decode(c, &config.DecodeOpts{
 		Interpolate:        true,
 		InterpolateContext: &c.ctx,
@@ -134,7 +127,7 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 		},
 	}, raws...)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Accumulate any errors and warnings
@@ -269,10 +262,10 @@ func NewConfig(raws ...interface{}) (*Config, []string, error) {
 	}
 
 	if errs != nil && len(errs.Errors) > 0 {
-		return nil, warnings, errs
+		return warnings, errs
 	}
 
-	return c, warnings, nil
+	return warnings, nil
 }
 
 func (c *Config) checkForVMXTemplateAndVMXDataCollisions() string {

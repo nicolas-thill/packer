@@ -1,3 +1,5 @@
+//go:generate mapstructure-to-hcl2 -type Config
+
 package compress
 
 import (
@@ -12,6 +14,7 @@ import (
 	"runtime"
 
 	"github.com/biogo/hts/bgzf"
+	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/config"
 	"github.com/hashicorp/packer/packer"
@@ -51,6 +54,8 @@ type Config struct {
 type PostProcessor struct {
 	config Config
 }
+
+func (p *PostProcessor) ConfigSpec() hcldec.ObjectSpec { return p.config.FlatMapstructure().HCL2Spec() }
 
 func (p *PostProcessor) Configure(raws ...interface{}) error {
 	err := config.Decode(&p.config, &config.DecodeOpts{
@@ -99,7 +104,11 @@ func (p *PostProcessor) Configure(raws ...interface{}) error {
 	return nil
 }
 
-func (p *PostProcessor) PostProcess(ctx context.Context, ui packer.Ui, artifact packer.Artifact) (packer.Artifact, bool, bool, error) {
+func (p *PostProcessor) PostProcess(
+	ctx context.Context,
+	ui packer.Ui,
+	artifact packer.Artifact,
+) (packer.Artifact, bool, bool, error) {
 
 	// These are extra variables that will be made available for interpolation.
 	p.config.ctx.Data = map[string]string{
@@ -130,26 +139,40 @@ func (p *PostProcessor) PostProcess(ctx context.Context, ui packer.Ui, artifact 
 	// Setup output interface. If we're using compression, output is a
 	// compression writer. Otherwise it's just a file.
 	var output io.WriteCloser
+	errTmpl := "error creating %s writer: %s"
 	switch p.config.Algorithm {
 	case "bgzf":
 		ui.Say(fmt.Sprintf("Using bgzf compression with %d cores for %s",
 			runtime.GOMAXPROCS(-1), target))
 		output, err = makeBGZFWriter(outputFile, p.config.CompressionLevel)
+		if err != nil {
+			return nil, false, false, fmt.Errorf(errTmpl, p.config.Algorithm, err)
+		}
 		defer output.Close()
 	case "lz4":
 		ui.Say(fmt.Sprintf("Using lz4 compression with %d cores for %s",
 			runtime.GOMAXPROCS(-1), target))
 		output, err = makeLZ4Writer(outputFile, p.config.CompressionLevel)
+		if err != nil {
+			return nil, false, false, fmt.Errorf(errTmpl, p.config.Algorithm, err)
+		}
 		defer output.Close()
 	case "xz":
 		ui.Say(fmt.Sprintf("Using xz compression with 1 core for %s (library does not support MT)",
 			target))
 		output, err = makeXZWriter(outputFile)
+		if err != nil {
+			return nil, false, false, fmt.Errorf(errTmpl, p.config.Algorithm, err)
+		}
 		defer output.Close()
 	case "pgzip":
 		ui.Say(fmt.Sprintf("Using pgzip compression with %d cores for %s",
 			runtime.GOMAXPROCS(-1), target))
 		output, err = makePgzipWriter(outputFile, p.config.CompressionLevel)
+		if err != nil {
+			return nil, false, false,
+				fmt.Errorf(errTmpl, p.config.Algorithm, err)
+		}
 		defer output.Close()
 	default:
 		output = outputFile

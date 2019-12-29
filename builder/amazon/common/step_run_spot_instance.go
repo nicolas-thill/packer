@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/hashicorp/packer/common/random"
 	"github.com/hashicorp/packer/common/retry"
@@ -31,7 +30,6 @@ type StepRunSpotInstance struct {
 	Comm                              *communicator.Config
 	EbsOptimized                      bool
 	ExpectedRootDevice                string
-	IamInstanceProfile                string
 	InstanceInitiatedShutdownBehavior string
 	InstanceType                      string
 	SourceAMI                         string
@@ -43,12 +41,32 @@ type StepRunSpotInstance struct {
 	UserData                          string
 	UserDataFile                      string
 	Ctx                               interpolate.Context
+	NoEphemeral                       bool
 
 	instanceId string
 }
 
 func (s *StepRunSpotInstance) CreateTemplateData(userData *string, az string,
 	state multistep.StateBag, marketOptions *ec2.LaunchTemplateInstanceMarketOptionsRequest) *ec2.RequestLaunchTemplateData {
+	blockDeviceMappings := s.LaunchMappings.BuildEC2BlockDeviceMappings()
+	if s.NoEphemeral {
+		// This is only relevant for windows guests. Ephemeral drives by
+		// default are assigned to drive names xvdca-xvdcz.
+		// When vms are launched from the AWS console, they're automatically
+		// removed from the block devices if the user hasn't said to use them,
+		// but the SDK does not perform this cleanup. The following code just
+		// manually removes the ephemeral drives from the mapping so that they
+		// don't clutter up console views and cause confusion.
+		log.Printf("no_ephemeral was set, so creating drives xvdca-xvdcz as empty mappings")
+		DefaultEphemeralDeviceLetters := "abcdefghijklmnopqrstuvwxyz"
+		for _, letter := range DefaultEphemeralDeviceLetters {
+			bd := &ec2.BlockDeviceMapping{
+				DeviceName: aws.String("xvdc" + string(letter)),
+				NoDevice:   aws.String(""),
+			}
+			blockDeviceMappings = append(blockDeviceMappings, bd)
+		}
+	}
 	// Convert the BlockDeviceMapping into a
 	// LaunchTemplateBlockDeviceMappingRequest. These structs are identical,
 	// except for the EBS field -- on one, that field contains a
@@ -57,7 +75,6 @@ func (s *StepRunSpotInstance) CreateTemplateData(userData *string, az string,
 	// LaunchTemplateEbsBlockDeviceRequest structs are themselves
 	// identical except for the struct's name, so you can cast one directly
 	// into the other.
-	blockDeviceMappings := s.LaunchMappings.BuildEC2BlockDeviceMappings()
 	var launchMappingRequests []*ec2.LaunchTemplateBlockDeviceMappingRequest
 	for _, mapping := range blockDeviceMappings {
 		launchRequest := &ec2.LaunchTemplateBlockDeviceMappingRequest{
@@ -69,12 +86,14 @@ func (s *StepRunSpotInstance) CreateTemplateData(userData *string, az string,
 		launchMappingRequests = append(launchMappingRequests, launchRequest)
 	}
 
+	iamInstanceProfile := aws.String(state.Get("iamInstanceProfile").(string))
+
 	// Create a launch template.
 	templateData := ec2.RequestLaunchTemplateData{
 		BlockDeviceMappings:   launchMappingRequests,
 		DisableApiTermination: aws.Bool(false),
 		EbsOptimized:          &s.EbsOptimized,
-		IamInstanceProfile:    &ec2.LaunchTemplateIamInstanceProfileSpecificationRequest{Name: &s.IamInstanceProfile},
+		IamInstanceProfile:    &ec2.LaunchTemplateIamInstanceProfileSpecificationRequest{Name: iamInstanceProfile},
 		ImageId:               &s.SourceAMI,
 		InstanceMarketOptions: marketOptions,
 		Placement: &ec2.LaunchTemplatePlacementRequest{
@@ -352,17 +371,12 @@ func (s *StepRunSpotInstance) Run(ctx context.Context, state multistep.StateBag)
 	}
 
 	// Retry creating tags for about 2.5 minutes
-	err = retry.Config{
-		Tries: 11,
-		ShouldRetry: func(error) bool {
-			if awsErr, ok := err.(awserr.Error); ok {
-				switch awsErr.Code() {
-				case "InvalidInstanceID.NotFound":
-					return true
-				}
-			}
-			return false
-		},
+	err = retry.Config{Tries: 11, ShouldRetry: func(error) bool {
+		if isAWSErr(err, "InvalidInstanceID.NotFound", "") {
+			return true
+		}
+		return false
+	},
 		RetryDelay: (&retry.Backoff{InitialBackoff: 200 * time.Millisecond, MaxBackoff: 30 * time.Second, Multiplier: 2}).Linear,
 	}.Run(ctx, func(ctx context.Context) error {
 		_, err := ec2conn.CreateTags(&ec2.CreateTagsInput{
@@ -427,6 +441,9 @@ func (s *StepRunSpotInstance) Run(ctx context.Context, state multistep.StateBag)
 	}
 
 	state.Put("instance", instance)
+	// instance_id is the generic term used so that users can have access to the
+	// instance id inside of the provisioners, used in step_provision.
+	state.Put("instance_id", instance.InstanceId)
 
 	return multistep.ActionContinue
 }

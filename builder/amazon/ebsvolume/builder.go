@@ -1,4 +1,5 @@
 //go:generate struct-markdown
+//go:generate mapstructure-to-hcl2 -type Config,BlockDevice
 
 // The ebsvolume package contains a packer.Builder implementation that builds
 // EBS volumes for Amazon EC2 using an ephemeral instance,
@@ -9,6 +10,8 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/iam"
+	"github.com/hashicorp/hcl/v2/hcldec"
 	awscommon "github.com/hashicorp/packer/builder/amazon/common"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/communicator"
@@ -78,7 +81,9 @@ type EngineVarsTemplate struct {
 	SourceAMI   string
 }
 
-func (b *Builder) Prepare(raws ...interface{}) ([]string, error) {
+func (b *Builder) ConfigSpec() hcldec.ObjectSpec { return b.config.FlatMapstructure().HCL2Spec() }
+
+func (b *Builder) Prepare(raws ...interface{}) ([]string, []string, error) {
 	b.config.ctx.Funcs = awscommon.TemplateFuncs
 	// Create passthrough for {{ .BuildRegion }} and {{ .SourceAMI }} variables
 	// so we can fill them in later
@@ -91,7 +96,7 @@ func (b *Builder) Prepare(raws ...interface{}) ([]string, error) {
 		InterpolateContext: &b.config.ctx,
 	}, raws...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Accumulate any errors
@@ -128,11 +133,11 @@ func (b *Builder) Prepare(raws ...interface{}) ([]string, error) {
 	}
 
 	if errs != nil && len(errs.Errors) > 0 {
-		return warns, errs
+		return nil, warns, errs
 	}
 
 	packer.LogSecretFilter.Set(b.config.AccessKey, b.config.SecretKey, b.config.Token)
-	return warns, nil
+	return nil, warns, nil
 }
 
 func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (packer.Artifact, error) {
@@ -141,12 +146,14 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 		return nil, err
 	}
 	ec2conn := ec2.New(session)
+	iam := iam.New(session)
 
 	// Setup the state bag and initial state for the steps
 	state := new(multistep.BasicStateBag)
 	state.Put("config", &b.config)
 	state.Put("access_config", &b.config.AccessConfig)
 	state.Put("ec2", ec2conn)
+	state.Put("iam", iam)
 	state.Put("hook", hook)
 	state.Put("ui", ui)
 
@@ -162,7 +169,6 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 			Debug:                             b.config.PackerDebug,
 			EbsOptimized:                      b.config.EbsOptimized,
 			ExpectedRootDevice:                "ebs",
-			IamInstanceProfile:                b.config.IamInstanceProfile,
 			InstanceInitiatedShutdownBehavior: b.config.InstanceInitiatedShutdownBehavior,
 			InstanceType:                      b.config.InstanceType,
 			SourceAMI:                         b.config.SourceAmi,
@@ -184,7 +190,6 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 			EbsOptimized:                      b.config.EbsOptimized,
 			EnableT2Unlimited:                 b.config.EnableT2Unlimited,
 			ExpectedRootDevice:                "ebs",
-			IamInstanceProfile:                b.config.IamInstanceProfile,
 			InstanceInitiatedShutdownBehavior: b.config.InstanceInitiatedShutdownBehavior,
 			InstanceType:                      b.config.InstanceType,
 			IsRestricted:                      b.config.IsChinaCloud() || b.config.IsGovCloud(),
@@ -223,6 +228,11 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 			SecurityGroupIds:       b.config.SecurityGroupIds,
 			CommConfig:             &b.config.RunConfig.Comm,
 			TemporarySGSourceCidrs: b.config.TemporarySGSourceCidrs,
+		},
+		&awscommon.StepIamInstanceProfile{
+			IamInstanceProfile:                        b.config.IamInstanceProfile,
+			SkipProfileValidation:                     b.config.SkipProfileValidation,
+			TemporaryIamInstanceProfilePolicyDocument: b.config.TemporaryIamInstanceProfilePolicyDocument,
 		},
 		instanceStep,
 		&stepTagEBSVolumes{

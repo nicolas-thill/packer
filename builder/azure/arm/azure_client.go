@@ -37,6 +37,7 @@ type AzureClient struct {
 	network.InterfacesClient
 	network.SubnetsClient
 	network.VirtualNetworksClient
+	network.SecurityGroupsClient
 	compute.ImagesClient
 	compute.VirtualMachinesClient
 	common.VaultClient
@@ -190,6 +191,12 @@ func NewAzureClient(subscriptionID, resourceGroupName, storageAccountName string
 	azureClient.VirtualNetworksClient.UserAgent = fmt.Sprintf("%s %s", useragent.String(), azureClient.VirtualNetworksClient.UserAgent)
 	azureClient.VirtualNetworksClient.Client.PollingDuration = PollingDuration
 
+	azureClient.SecurityGroupsClient = network.NewSecurityGroupsClientWithBaseURI(cloud.ResourceManagerEndpoint, subscriptionID)
+	azureClient.SecurityGroupsClient.Authorizer = autorest.NewBearerAuthorizer(servicePrincipalToken)
+	azureClient.SecurityGroupsClient.RequestInspector = withInspection(maxlen)
+	azureClient.SecurityGroupsClient.ResponseInspector = byConcatDecorators(byInspecting(maxlen), errorCapture(azureClient))
+	azureClient.SecurityGroupsClient.UserAgent = fmt.Sprintf("%s %s", useragent.String(), azureClient.SecurityGroupsClient.UserAgent)
+
 	azureClient.PublicIPAddressesClient = network.NewPublicIPAddressesClientWithBaseURI(cloud.ResourceManagerEndpoint, subscriptionID)
 	azureClient.PublicIPAddressesClient.Authorizer = autorest.NewBearerAuthorizer(servicePrincipalToken)
 	azureClient.PublicIPAddressesClient.RequestInspector = withInspection(maxlen)
@@ -230,7 +237,7 @@ func NewAzureClient(subscriptionID, resourceGroupName, storageAccountName string
 	azureClient.GalleryImagesClient.RequestInspector = withInspection(maxlen)
 	azureClient.GalleryImagesClient.ResponseInspector = byConcatDecorators(byInspecting(maxlen), errorCapture(azureClient))
 	azureClient.GalleryImagesClient.UserAgent = fmt.Sprintf("%s %s", useragent.String(), azureClient.GalleryImagesClient.UserAgent)
-	azureClient.GalleryImageVersionsClient.Client.PollingDuration = PollingDuration
+	azureClient.GalleryImagesClient.Client.PollingDuration = PollingDuration
 
 	keyVaultURL, err := url.Parse(cloud.KeyVaultEndpoint)
 	if err != nil {

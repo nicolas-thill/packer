@@ -13,7 +13,6 @@ import (
 	"os"
 	"time"
 
-	commonhelper "github.com/hashicorp/packer/helper/common"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -56,8 +55,8 @@ func (s *StepCreateWindowsPassword) Run(ctx context.Context, state multistep.Sta
 	binary.BigEndian.PutUint32(buf, uint32(priv.E))
 
 	email := ""
-	if c.Account != nil {
-		email = c.Account.Email
+	if c.account != nil {
+		email = c.account.Email
 	}
 
 	data := WindowsPasswordConfig{
@@ -99,7 +98,7 @@ func (s *StepCreateWindowsPassword) Run(ctx context.Context, state multistep.Sta
 		ui.Message("Waiting for windows password to complete...")
 		select {
 		case err = <-errCh:
-		case <-time.After(c.stateTimeout):
+		case <-time.After(c.StateTimeout):
 			err = errors.New("time out while waiting for the password to be created")
 		}
 	}
@@ -119,7 +118,6 @@ func (s *StepCreateWindowsPassword) Run(ctx context.Context, state multistep.Sta
 	}
 
 	state.Put("winrm_password", data.password)
-	commonhelper.SetSharedState("winrm_password", data.password, c.PackerConfig.PackerBuildName)
 	packer.LogSecretFilter.Set(data.password)
 
 	return multistep.ActionContinue

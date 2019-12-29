@@ -1,3 +1,5 @@
+//go:generate mapstructure-to-hcl2 -type Config
+
 package googlecomputeimport
 
 import (
@@ -12,6 +14,7 @@ import (
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/storage/v1"
 
+	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/hashicorp/packer/builder/googlecompute"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/config"
@@ -36,13 +39,15 @@ type Config struct {
 	SkipClean            bool              `mapstructure:"skip_clean"`
 	VaultGCPOauthEngine  string            `mapstructure:"vault_gcp_oauth_engine"`
 
-	Account *jwt.Config
+	account *jwt.Config
 	ctx     interpolate.Context
 }
 
 type PostProcessor struct {
 	config Config
 }
+
+func (p *PostProcessor) ConfigSpec() hcldec.ObjectSpec { return p.config.FlatMapstructure().HCL2Spec() }
 
 func (p *PostProcessor) Configure(raws ...interface{}) error {
 	err := config.Decode(&p.config, &config.DecodeOpts{
@@ -76,7 +81,7 @@ func (p *PostProcessor) Configure(raws ...interface{}) error {
 		if err != nil {
 			errs = packer.MultiErrorAppend(errs, err)
 		}
-		p.config.Account = cfg
+		p.config.account = cfg
 	}
 
 	if p.config.AccountFile != "" && p.config.VaultGCPOauthEngine != "" {
@@ -105,7 +110,7 @@ func (p *PostProcessor) Configure(raws ...interface{}) error {
 }
 
 func (p *PostProcessor) PostProcess(ctx context.Context, ui packer.Ui, artifact packer.Artifact) (packer.Artifact, bool, bool, error) {
-	client, err := googlecompute.NewClientGCE(p.config.Account, p.config.VaultGCPOauthEngine)
+	client, err := googlecompute.NewClientGCE(p.config.account, p.config.VaultGCPOauthEngine)
 	if err != nil {
 		return nil, false, false, err
 	}

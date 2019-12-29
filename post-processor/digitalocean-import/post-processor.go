@@ -1,3 +1,5 @@
+//go:generate mapstructure-to-hcl2 -type Config
+
 package digitaloceanimport
 
 import (
@@ -17,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/digitalocean/godo"
 
+	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/hashicorp/packer/builder/digitalocean"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/config"
@@ -33,16 +36,17 @@ type Config struct {
 	SpacesKey    string `mapstructure:"spaces_key"`
 	SpacesSecret string `mapstructure:"spaces_secret"`
 
-	SpacesRegion string        `mapstructure:"spaces_region"`
-	SpaceName    string        `mapstructure:"space_name"`
-	ObjectName   string        `mapstructure:"space_object_name"`
-	SkipClean    bool          `mapstructure:"skip_clean"`
-	Tags         []string      `mapstructure:"image_tags"`
-	Name         string        `mapstructure:"image_name"`
-	Description  string        `mapstructure:"image_description"`
-	Distribution string        `mapstructure:"image_distribution"`
-	ImageRegions []string      `mapstructure:"image_regions"`
-	Timeout      time.Duration `mapstructure:"timeout"`
+	SpacesRegion string   `mapstructure:"spaces_region"`
+	SpaceName    string   `mapstructure:"space_name"`
+	ObjectName   string   `mapstructure:"space_object_name"`
+	SkipClean    bool     `mapstructure:"skip_clean"`
+	Tags         []string `mapstructure:"image_tags"`
+	Name         string   `mapstructure:"image_name"`
+	Description  string   `mapstructure:"image_description"`
+	Distribution string   `mapstructure:"image_distribution"`
+	ImageRegions []string `mapstructure:"image_regions"`
+
+	Timeout time.Duration `mapstructure:"timeout"`
 
 	ctx interpolate.Context
 }
@@ -68,6 +72,8 @@ func (t *apiTokenSource) Token() (*oauth2.Token, error) {
 func (l logger) Log(args ...interface{}) {
 	l.logger.Println(args...)
 }
+
+func (p *PostProcessor) ConfigSpec() hcldec.ObjectSpec { return p.config.FlatMapstructure().HCL2Spec() }
 
 func (p *PostProcessor) Configure(raws ...interface{}) error {
 	err := config.Decode(&p.config, &config.DecodeOpts{
